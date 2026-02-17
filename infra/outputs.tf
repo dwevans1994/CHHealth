@@ -12,8 +12,3 @@ output "ecr_repository_url" {
   description = "ECR repository URL for CI"
   value       = aws_ecr_repository.app.repository_url
 }
-
-output "interviewer_user_name" {
-  description = "IAM user for interviewer — create access keys with: aws iam create-access-key --user-name claraheath-interviewer"
-  value       = aws_iam_user.interviewer.name
-}
