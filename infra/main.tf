@@ -35,7 +35,11 @@ provider "aws" {
   region = var.aws_region
 }
 
-# --- Data sources: default VPC and subnets ---
+# --- Data sources ---
+
+data "aws_caller_identity" "current" {}
+
+# --- Default VPC and subnets ---
 
 data "aws_vpc" "default" {
   default = true
@@ -134,10 +138,30 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         ]
       },
       {
-        Sid    = "ECS"
+        Sid    = "ECSCluster"
         Effect = "Allow"
         Action = [
           "ecs:*"
+        ]
+        Resource = [
+          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/claraheath-cluster",
+          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/claraheath-cluster/*",
+          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/claraheath-cluster/*",
+          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/claraheath:*"
+        ]
+      },
+      {
+        Sid    = "ECSDescribe"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeClusters",
+          "ecs:ListClusters",
+          "ecs:ListServices",
+          "ecs:ListTasks",
+          "ecs:RegisterTaskDefinition",
+          "ecs:DeregisterTaskDefinition",
+          "ecs:DescribeTaskDefinition",
+          "ecs:ListTaskDefinitions"
         ]
         Resource = "*"
       },
@@ -200,6 +224,14 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "logs:PutRetentionPolicy",
           "logs:ListTagsLogGroup",
           "logs:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AutoScaling"
+        Effect = "Allow"
+        Action = [
+          "application-autoscaling:*"
         ]
         Resource = "*"
       },
@@ -396,4 +428,96 @@ resource "aws_ecs_service" "app" {
   }
 
   depends_on = [aws_lb_listener.http]
+}
+
+# --- Auto Scaling ---
+
+resource "aws_appautoscaling_target" "ecs" {
+  max_capacity       = 2
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "ecs_cpu" {
+  name               = "claraheath-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    target_value       = 70
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+# --- Interviewer: read-only access to claraheath ECS only ---
+
+resource "aws_iam_user" "interviewer" {
+  name = "claraheath-interviewer"
+}
+
+resource "aws_iam_user_policy" "interviewer" {
+  name = "claraheath-readonly"
+  user = aws_iam_user.interviewer.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ECSReadOnly"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeClusters",
+          "ecs:DescribeServices",
+          "ecs:DescribeTasks",
+          "ecs:DescribeTaskDefinition",
+          "ecs:ListServices",
+          "ecs:ListTasks",
+          "ecs:ListTaskDefinitions"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "ecs:cluster" = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/claraheath-cluster"
+          }
+        }
+      },
+      {
+        Sid    = "ECSDescribeCluster"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeClusters",
+          "ecs:ListClusters"
+        ]
+        Resource = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/claraheath-cluster"
+      },
+      {
+        Sid    = "ECSTaskDefinitions"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeTaskDefinition",
+          "ecs:ListTaskDefinitions"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchLogsReadOnly"
+        Effect = "Allow"
+        Action = [
+          "logs:GetLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups",
+          "logs:FilterLogEvents"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/claraheath:*"
+      }
+    ]
+  })
 }
