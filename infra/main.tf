@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 }
 
@@ -17,6 +21,12 @@ variable "aws_region" {
 variable "image_uri" {
   type        = string
   description = "Full ECR image URI with tag (e.g. 123456789.dkr.ecr.eu-west-1.amazonaws.com/myapp:abc123)"
+}
+
+variable "github_repo" {
+  type        = string
+  default     = "dwevans1994/CHHealth"
+  description = "GitHub org/repo for OIDC trust (e.g. myorg/myrepo)"
 }
 
 provider "aws" {
@@ -34,6 +44,82 @@ data "aws_subnets" "default" {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
+}
+
+# --- GitHub OIDC Provider ---
+
+data "tls_certificate" "github" {
+  url = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
+}
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
+}
+
+# --- CI Role for GitHub Actions ---
+
+resource "aws_iam_role" "github_actions" {
+  name = "claraheath-github-actions"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "github_actions_ecr" {
+  name = "ecr-push"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload"
+        ]
+        Resource = aws_ecr_repository.app.arn
+      }
+    ]
+  })
+}
+
+# --- ECR Repository ---
+
+resource "aws_ecr_repository" "app" {
+  name                 = "claraheath"
+  image_tag_mutability = "IMMUTABLE"
+  force_delete         = true
 }
 
 # --- Security Groups ---

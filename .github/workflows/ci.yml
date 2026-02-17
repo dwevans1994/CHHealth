@@ -47,7 +47,7 @@ jobs:
       - name: Build, tag, and push image to ECR
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          REPOSITORY: claraheath
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
