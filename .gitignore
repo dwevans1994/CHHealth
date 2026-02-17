@@ -22,5 +22,11 @@ htmlcov/
 # Docker
 docker-compose.override.yml
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+
 # OS
 .DS_Store
