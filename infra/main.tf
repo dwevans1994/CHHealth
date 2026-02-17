@@ -170,6 +170,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Effect = "Allow"
         Action = [
           "ec2:DescribeVpcs",
+          "ec2:DescribeVpcAttribute",
           "ec2:DescribeSubnets",
           "ec2:DescribeSecurityGroups",
           "ec2:CreateSecurityGroup",
@@ -207,6 +208,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "iam:ListRolePolicies",
           "iam:ListAttachedRolePolicies",
           "iam:ListInstanceProfilesForRole",
+          "iam:ListOpenIDConnectProviders",
           "iam:GetOpenIDConnectProvider",
           "iam:CreateOpenIDConnectProvider",
           "iam:DeleteOpenIDConnectProvider",
