@@ -124,7 +124,9 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "s3:GetObject",
           "s3:PutObject",
           "s3:DeleteObject",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:CreateBucket",
+          "s3:HeadBucket"
         ]
         Resource = [
           "arn:aws:s3:::claraheath-terraform-state",
